@@ -1,0 +1,118 @@
+(ns bus-led.core
+  (:gen-class)
+  (:require [clojure.data.json :as json]
+            [clj-time.core :as t]
+            [clj-time.format :as f]
+            [clj-time.coerce :as c]
+            [gpio.core :as gpio]))
+
+;; clojure version 1.8.0 on mac 2017-710.616
+;; CIDER 0.15.0snapshot
+;; nREPL 0.2.12
+
+;; now I just need to change the state of the leds based on when the next bus is coming
+
+;; application ID and app key, send with each API request.
+(def app-id "965b845c")
+(def app-key "054fe673c1dc4990bbb7c0de795caf64")
+
+;; Bus stop and route information
+(def stop-dir-east "490005275E1") ;; heading east
+(def stop-dir-west "490005275W1") ;; heading west
+(def bus-routes "144,41") ;; string of the bus routes of interest
+
+;; ;; Which pins are we usingp
+;; (def port-amber-led (gpio/open-port 14))
+;; (def port-green-led (gpio/open-port 15))
+;; (def port-white-led (gpio/open-port 18))
+
+    
+;; functions to work with the data from the tfl api
+
+(defn mins-between
+  "Returns the difference in minutes between two dates,
+  returns a negative value if end-date is before start-date"
+  [start-date end-date]
+  (if (t/after? end-date start-date)
+    (t/in-minutes (t/interval start-date end-date))
+    (* -1 (t/in-minutes (t/interval end-date start-date)))))
+
+(defn list-of-arrival-times
+  "Will provide a list of arrival times from api output"
+  [data-from-api]
+  (map #(mins-between (t/now) (c/from-string (% "expectedArrival"))) data-from-api))
+
+(defn get-bus-times-from-api
+  "Read line status information from API as JSON, detail is false as the
+  information is not required, returns a clojure sequence of maps"
+  [stop-id bus-routes]
+  (->> (str "https://api.tfl.gov.uk/Line/" bus-routes "/Arrivals?stopPointId=" stop-id  "&app_id=" app-id "&app_key=" app-key)
+      slurp
+      json/read-str
+      list-of-arrival-times
+      ))
+
+;; functions to work with the leds. I would like to create pulse function in here
+
+(def rasp-pi (atom
+  {
+   :amber-led {:port nil :val nil}
+   :green-led {:port nil :val nil}
+   :white-led {:port nil :val nil}
+   }))
+
+(defn init-ports!
+  "associate each of our ports with the associated pin
+  and their direction"
+  []
+  (swap! rasp-pi assoc (-> :amber-led :port) (gpio/open-port 14)))
+  
+  ;; (dosync
+  ;;   (ref-set (-> p :amber-led :port) (gpio/open-port 14))
+  ;;   (ref-set (-> p :green-led :port) (gpio/open-port 15))
+  ;;   (ref-set (-> p :white-led :port) (gpio/open-port 18))
+  ;;   (gpio/set-direction! @(-> p :amber-led :port) :out)
+  ;;   (gpio/set-direction! @(-> p :green-led :port) :out)
+  ;;   (gpio/set-direction! @(-> p :white-led :port) :out)))
+
+(defn close-all-ports!
+  "will close all the open ports"
+  []
+  (dosync
+    (gpio/close! @(-> ports :green-led :port))
+    (gpio/close! @(-> ports :ambed-led :port))
+    (gpio/close! @(-> ports :white-led :port))))
+
+(defn new-led-vals!
+  "set the values of the refs that specify the values of the leds 
+  taking the minimum value of the bus"
+  [mins-to-bus-list]
+  (dosync
+   (def num-bus-next-10min (count (filter #(and (<= % 10) (>= % 3)) mins-to-bus-list)))
+   (ref-set (-> ports :green-led :val) (if (> num-bus-next-10min 1) :high :low)) ;; if there is more than 1 bus between 3 and 10 mins
+   (ref-set (-> ports :amber-led :val) (if (= num-bus-next-10min 1) :high :low)) ;; if there is only 1 bus in next 10 mins
+   (ref-set (-> ports :white-led :val) (> (count (filter #(and (<= % 4) (>= % 3)) mins-to-bus-list)) 0) :high :low))) ;; if there is a bus in the next 3 to 4 minutes
+
+(defn change-leds!
+  "change the leds to the specified vals"
+  []
+  (do
+    (gpio/write-value! (deref (-> ports :green-led :val)))
+    (gpio/write-value! (deref (-> ports :green-led :val)))
+    (gpio/write-value! (deref (-> ports :green-led :val)))))
+  
+(defn -main
+  "Every 10 seconds return list of minutes until next bus"
+  []
+  (do
+    (init-ports! ports)
+    (while true
+      (def bus-times (get-bus-times-from-api stop-dir-east bus-routes))
+      (println (str "Minutes until bus arrivals: " (pr-str (sort bus-times))))
+      (new-led-vals! bus-times)
+      (change-leds!)
+      (Thread/sleep 10000)
+      )
+    (close-allports!)
+    )
+  )
