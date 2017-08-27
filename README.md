@@ -1,5 +1,7 @@
 # bus-led
 
+Version 1.0
+
 This is a project that will indidate the current time until a bus will arrive with led lights.
 
 Working on changing the data structures at the moment to learn more about data structures in clojure.
