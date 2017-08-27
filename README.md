@@ -1,7 +1,6 @@
 # bus-led
 
-FIXME: description
-
+This is a project that will indidate the current time until a bus will arrive with led lights.
 ## Installation
 
 Download from http://example.com/FIXME.
