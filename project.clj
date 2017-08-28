@@ -5,8 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/data.json "0.2.6"]
-                 [clj-time "0.14.0"]
-                 [clj-gpio "0.2.0"]]
+                 [clj-time "0.14.0"]]
   :main ^:skip-aot bus-led.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})
