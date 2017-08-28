@@ -4,11 +4,11 @@
             [clj-time.core :as t]
             [clj-time.format :as f]
             [clj-time.coerce :as c]
-            [clojure.java.shell :refer [sh]]))
+            [clojure.java.shell :refer [sh]]
+            [clojure.java.io :as io]))
 
-;; application ID and app key, send with each API request.
-(def app-id "965b845c")
-(def app-key "054fe673c1dc4990bbb7c0de795caf64")
+;; get application ID and app key, send with each API request.
+(def app-id-key (json/read-str (slurp (io/resource "config.json"))))
 
 ;; Bus stop and route information
 (def bus-stop "490005275E1") ;; heading east
@@ -19,7 +19,7 @@
 (def pin-amber "1")
 (def pin-white "6")
 
-(def run-state-led-monitor (atom nil)) ;; this will receive commands to be passed around and provide thread control
+(def run-state (atom nil)) ;; this will receive commands to be passed around and provide thread control
 
 ;; functions to work with the data from the tfl api
 
@@ -37,7 +37,7 @@
 (defn get-bus-times-from-api [stop-id bus-routes]
   "Read line status information from API as JSON, detail is false as the
   information is not required, returns a clojure sequence of maps"
-  (->> (str "https://api.tfl.gov.uk/Line/" bus-routes "/Arrivals?stopPointId=" stop-id  "&app_id=" app-id "&app_key=" app-key)
+  (->> (str "https://api.tfl.gov.uk/Line/" bus-routes "/Arrivals?stopPointId=" stop-id  "&app_id=" (app-id-key "app-id") "&app_key=" (app-id-key "app-key"))
       slurp
       json/read-str
       list-of-arrival-times
@@ -79,32 +79,57 @@
 (defn display-buses-with-leds []
   "Set the leds to output and then every 10 seconds change the leds depending on bus timing. Loop forever."
   (do
-    (println "Starting LED bus monitoring")
+    (println "Bus monitoring thread open")
     (init-pins!)
     (loop [bus-times (get-bus-times-from-api bus-stop bus-routes)]
-      (do
-        (when (= @run-state-led-monitor :go)
+        (when (= @run-state :go)
           (write-pins! (new-led-vals bus-times))
           (Thread/sleep 10000)
-          (recur (get-bus-times-from-api bus-stop bus-routes)))))
+          (recur (get-bus-times-from-api bus-stop bus-routes))))
     (reset-pins!)
-    (println "Stopping LED bus monitoring")
+    (println "Bus monitoring thread closed")))
+
+(defn flash-led! [pin]
+  "This just run a simple display to show that a message has been received"
+  (do
+    (init-pins!)
+    (sh "gpio" "write" pin "1")
+    (Thread/sleep 100)
+    (sh "gpio" "write" pin "0")
+    (Thread/sleep 100)
+    (sh "gpio" "write" pin "1")
+    (Thread/sleep 100)
+    (sh "gpio" "write" pin "0")
+    (Thread/sleep 100)
+    (sh "gpio" "write" pin "1")
+    (Thread/sleep 100)
+    (reset-pins!)
     ))
 
 (defn -main []
   "main function to coordinate running the LEd bus-countdown"
-  (println "LED bus countdown (commands :start/:stop/:quit)")
-
-  (loop [input (read-line)]
-    (when-not (= input ":quit")
-      (case input
-        ":start" (do
-                   (reset! run-state-led-monitor :go)
-                   (future (display-buses-with-leds)))
-        ":stop" (do
-                  (reset! run-state-led-monitor :stop)
-        (println "Unknown command"))
-      (recur (read-line))))
-  
-  (reset! run-state-led-monitor :stop)
-  (println "LED bus countdown has :quit"))
+  (do
+    (flash-led! pin-amber)
+    (flash-led! pin-green)
+    (flash-led! pin-white)
+    (println "LED bus countdown (commands :start/:stop/:quit)")
+    (loop [input (read-line)]
+      (if (= input ":quit")
+        (do
+          (reset! run-state :stop)
+          (println "QUIT")
+          (flash-led! pin-amber)
+          (flash-led! pin-green)
+          (flash-led! pin-white))
+        (do
+          (case input
+            ":start" (do
+                       (flash-led! pin-green)
+                       (reset! run-state :go)
+                       (future (display-buses-with-leds)))
+            ":stop" (do
+                        (flash-led! pin-amber)
+                        (reset! run-state :stop))
+            (println "Unknown command"))
+          (recur (read-line)))))))
+        
