@@ -8,11 +8,11 @@
             [clojure.java.io :as io]))
 
 ;; get application ID and app key, send with each API request.
-(def app-id-key (json/read-str (slurp (io/resource "config.json"))))
+(def config-info (json/read-str (slurp (io/resource "config.json"))))
 
 ;; Bus stop and route information
-(def bus-stop "490005275E1") ;; heading east
-(def bus-routes "144,41") ;; string of the bus routes of interest
+(def bus-stop (config-info "bus_stop")) ;; heading east
+(def bus-routes (config-info "bus_routes")) ;; string of the bus routes of interest
 
 ;; Which pins are we using
 (def pin-green "4")
@@ -37,7 +37,7 @@
 (defn get-bus-times-from-api [stop-id bus-routes]
   "Read line status information from API as JSON, detail is false as the
   information is not required, returns a clojure sequence of maps"
-  (->> (str "https://api.tfl.gov.uk/Line/" bus-routes "/Arrivals?stopPointId=" stop-id  "&app_id=" (app-id-key "app-id") "&app_key=" (app-id-key "app-key"))
+  (->> (str "https://api.tfl.gov.uk/Line/" bus-routes "/Arrivals?stopPointId=" stop-id  "&app_id=" (config-info "app-id") "&app_key=" (config-info "app-key"))
       slurp
       json/read-str
       list-of-arrival-times
